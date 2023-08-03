@@ -1,5 +1,5 @@
 using GLMakie
-Makie.inline!(true)
+# Makie.inline!(true)
 
 using KernelAbstractions
 
@@ -8,9 +8,6 @@ macro isin(A) esc(:(checkbounds(Bool, $A, ix, iy))) end
 macro all(A) esc(:($A[ix, iy])) end
 
 macro inn(A) esc(:($A[ix+1, iy+1])) end
-
-macro inn_x(A) esc(:($A[ix+1, iy])) end
-macro inn_y(A) esc(:($A[ix, iy+1])) end
 
 macro ∂_x(A) esc(:($A[ix+1, iy] - $A[ix, iy])) end
 macro ∂_y(A) esc(:($A[ix, iy+1] - $A[ix, iy])) end
@@ -69,20 +66,20 @@ end
 
 @kernel function update_V!(V, rV, Δτ)
     ix, iy = @index(Global, NTuple)
-    @inbounds if isin(rV.x) @inn_x(V.x) += @all(rV.x) * Δτ.V end
-    @inbounds if isin(rV.y) @inn_y(V.y) += @all(rV.y) * Δτ.V end
+    @inbounds if isin(rV.x) @inn(V.x) += @all(rV.x) * Δτ.V end
+    @inbounds if isin(rV.y) @inn(V.y) += @all(rV.y) * Δτ.V end
 end
 
 @kernel function bc_Vx!(Vx, U)
     iy = @index(Global, Linear)
-    @inbounds Vx[1, iy+1] = 2.0 * U - Vx[2    , iy]
-    @inbounds Vx[2, iy+1] = 2.0 * U - Vx[end-1, iy]
+    @inbounds Vx[1, iy] = 2.0 * U - Vx[2    , iy]
+    @inbounds Vx[2, iy] = 2.0 * U - Vx[end-1, iy]
 end
 
 @kernel function bc_Vy!(Vy, U)
     ix = @index(Global, Linear)
-    @inbounds Vy[ix+1, 1  ] = 2.0 * U - Vy[ix+1, 2    ]
-    @inbounds Vy[ix+1, end] = 2.0 * U - Vy[ix+1, end-1]
+    @inbounds Vy[ix, 1  ] = 2.0 * U - Vy[ix, 2    ]
+    @inbounds Vy[ix, end] = 2.0 * U - Vy[ix, end-1]
 end
 
 @views amean1(A) = 0.5 .* (A[1:end-1] .+ A[2:end])
