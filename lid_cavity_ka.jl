@@ -1,7 +1,8 @@
-using GLMakie
+using CairoMakie
 # Makie.inline!(true)
 
 using KernelAbstractions
+using CUDA
 
 macro isin(A) esc(:(checkbounds(Bool, $A, ix, iy))) end
 
@@ -17,7 +18,7 @@ macro ∂_yi(A) esc(:($A[ix+1, iy+1] - $A[ix+1, iy])) end
 
 @kernel function update_σ!(Pr, τ, V, μ, Δτ, Δ)
     ix, iy = @index(Global, NTuple)
-    @inbounds if isin(Pr)
+    @inbounds if @isin(Pr)
         exx = @∂_xi(V.x) / Δ.x
         eyy = @∂_yi(V.y) / Δ.y
         ∇V = exx + eyy
@@ -25,9 +26,9 @@ macro ∂_yi(A) esc(:($A[ix+1, iy+1] - $A[ix+1, iy])) end
         @all(τ.xx) += (-@all(τ.xx) + 2.0 * μ * (exx - ∇V / 3.0)) * Δτ.τ
         @all(τ.yy) += (-@all(τ.yy) + 2.0 * μ * (eyy - ∇V / 3.0)) * Δτ.τ
     end
-    @inbounds if isin(τ.xy)
+    @inbounds if @isin(τ.xy)
         exy = 0.5 * (@∂_y(V.x) / Δ.y + @∂_x(V.y) / Δ.x)
-        @all(τ.xy) += (-@all(τ.xy) + 2.0 * exy) * Δτ.τ
+        @all(τ.xy) += (-@all(τ.xy) + 2.0 * μ * exy) * Δτ.τ
     end
 end
 
@@ -45,7 +46,7 @@ end
 
 @kernel function update_rV!(rV, V, Pr, τ, ρ, Δ)
     ix, iy = @index(Global, NTuple)
-    @inbounds if isin(rV.x)
+    @inbounds if @isin(rV.x)
         V∇Vx = max(0.0, V.x[ix+1, iy+1]) * (V.x[ix+1, iy+1] - V.x[ix  , iy+1]) / Δ.x +
                min(0.0, V.x[ix+1, iy+1]) * (V.x[ix+2, iy+1] - V.x[ix+1, iy+1]) / Δ.x +
                max(0.0, 0.5 * (V.y[ix+1, iy  ] + V.y[ix+2, iy  ])) * (V.x[ix+1, iy+1] - V.x[ix+1, iy  ]) / Δ.y +
@@ -54,7 +55,7 @@ end
         @all(rV.x) = -@∂_x(Pr) / Δ.x + @∂_x(τ.xx) / Δ.x + @∂_yi(τ.xy) / Δ.y - ρ * V∇Vx
     end
             
-    @inbounds if isin(rV.x)
+    @inbounds if @isin(rV.x)
         V∇Vy = max(0.0, V.y[ix+1, iy+1]) * (V.y[ix+1, iy+1] - V.y[ix  , iy+1]) / Δ.y +
                min(0.0, V.y[ix+1, iy+1]) * (V.y[ix+1, iy+2] - V.y[ix+1, iy+1]) / Δ.y +
                max(0.0, 0.5 * (V.x[ix  , iy+1] + V.x[ix  , iy+2])) * (V.y[ix+1, iy+1] - V.y[ix  , iy+1]) / Δ.x +
@@ -66,20 +67,20 @@ end
 
 @kernel function update_V!(V, rV, Δτ)
     ix, iy = @index(Global, NTuple)
-    @inbounds if isin(rV.x) @inn(V.x) += @all(rV.x) * Δτ.V end
-    @inbounds if isin(rV.y) @inn(V.y) += @all(rV.y) * Δτ.V end
+    @inbounds if @isin(rV.x) @inn(V.x) += @all(rV.x) * Δτ.V end
+    @inbounds if @isin(rV.y) @inn(V.y) += @all(rV.y) * Δτ.V end
 end
 
-@kernel function bc_Vx!(Vx, U)
+@kernel function bc_Vx!(Vx, U1, U2)
     iy = @index(Global, Linear)
-    @inbounds Vx[1, iy] = 2.0 * U - Vx[2    , iy]
-    @inbounds Vx[2, iy] = 2.0 * U - Vx[end-1, iy]
+    @inbounds Vx[1  , iy] = 2.0 * U1 - Vx[2    , iy]
+    @inbounds Vx[end, iy] = 2.0 * U2 - Vx[end-1, iy]
 end
 
-@kernel function bc_Vy!(Vy, U)
+@kernel function bc_Vy!(Vy, U1, U2)
     ix = @index(Global, Linear)
-    @inbounds Vy[ix, 1  ] = 2.0 * U - Vy[ix, 2    ]
-    @inbounds Vy[ix, end] = 2.0 * U - Vy[ix, end-1]
+    @inbounds Vy[ix, 1  ] = 2.0 * U1 - Vy[ix, 2    ]
+    @inbounds Vy[ix, end] = 2.0 * U2 - Vy[ix, end-1]
 end
 
 @views amean1(A) = 0.5 .* (A[1:end-1] .+ A[2:end])
@@ -87,13 +88,13 @@ end
 @views avy(A) = 0.5 .* (A[:, 1:end-1] .+ A[:, 2:end])
 
 @views function stokes(backend = CPU())
-    ka_zeros(sz...) = KernelAbstractions.zeros(backend, sz...)
+    ka_zeros(sz...) = KernelAbstractions.zeros(backend, Float64, sz...)
     # Physics
     h       = 1.0
     lx = ly = h
     μ       = 1.0
     U       = 1.0
-    ρ       = 100.0 # Re = ρ * U * ly / μs
+    ρ       = 10.0 # Re = ρ * U * ly / μs
     # Numerics
     nx      = ny = 100
     ndt     = 1000
@@ -103,6 +104,10 @@ end
     re_mech = 20π
     # Preprocessing
     dx, dy  = lx / nx, ly / ny
+    Δ = (
+        x = dx, 
+        y = dy,
+    )
     xv, yv  = LinRange(-lx / 2, lx / 2, nx + 1), LinRange(0, ly, ny + 1)
     xc, yc  = amean1(xv), amean1(yv)
     lτ_re_m = min(lx, ly) / re_mech
@@ -116,7 +121,6 @@ end
         τ = dτ_r,
         V = nudτ / μ,
     )
-    @info "Here -1"
     # Initialisation
     Pr      = ka_zeros(nx, ny)
     V       = (
@@ -135,10 +139,9 @@ end
     Q  = ka_zeros(nx + 1, ny + 1)
     UV = ka_zeros(nx + 1, ny + 1)
     RQ = ka_zeros(nx - 1, ny - 1)
-    @info "Here 0"
 
-    bc_Vx!(backend, 256, size(V.x, 2))(V.x, 0.0)
-    bc_Vy!(backend, 256, size(V.y, 1))(V.y, U)
+    bc_Vx!(backend, 256, size(V.x, 2))(V.x, 0.0, 0.0)
+    bc_Vy!(backend, 256, size(V.y, 1))(V.y, 0.0, U)
     KernelAbstractions.synchronize(backend)
     # Action
     iter = 0
@@ -178,33 +181,29 @@ end
         #          diff(diff(Q[:, 2:end-1], dims=1), dims=1) ./ dx^2) .+ UV[2:end-1, 2:end-1] .+ (1 - 2 / nx) * RQ
         # Q[2:end-1, 2:end-1] .-= dτ_Q * RQ
 
-        @info "Here 1"
-        update_σ!(backend, 256, (nx+1,ny+1))(Pr, τ, V, μ, Δτ, Δ)
-        @info "Here 2"
+        update_σ!(backend, 256, (nx+1, ny+1))(Pr, τ, V, μ, Δτ, Δ)
         update_rV!(backend, 256, (nx, ny))(rV, V, Pr, τ, ρ, Δ)
-        @info "Here 3"
         update_V!(backend, 256, (nx, ny))(V, rV, Δτ)
-        @info "Here 4"
-        bc_Vx!(backend, 256, size(V.x, 2))(V.x, 0.0)
-        bc_Vy!(backend, 256, size(V.y, 1))(V.y, U)
+        bc_Vx!(backend, 256, size(V.x, 2))(V.x, 0.0, 0.0)
+        bc_Vy!(backend, 256, size(V.y, 1))(V.y, 0.0, U)
 
         KernelAbstractions.synchronize(backend)
 
         if iter % ndt == 0
-            resv  = maximum.((Rx, Ry, ∇v, RQ))
+            resv  = maximum.((rV.x, rV.y, RQ))
             res   = maximum(resv); println(" iter $iter err: $(round.(resv, sigdigits=3))")
         end
         iter += 1
     end
     # visualise
-    fig, ax, hm = contourf(xc, yc, avy(Vy); levels=20, figure=(resolution=(1000, 800), fontsize=30), axis=(aspect=DataAspect(), title="Velocity"), colormap=:jet)
-    contour!(ax, xv[2:end-1], yv[2:end-1], log10.(abs.(Q[2:end-1, 2:end-1])); levels=18, color=:black)
+    fig, ax, hm = contourf(xc, yc, Array(avy(V.y[2:end-1,:])); levels=20, figure=(resolution=(1000, 800), fontsize=30), axis=(aspect=DataAspect(), title="Velocity"), colormap=:jet)
+    # contour!(ax, xv[2:end-1], yv[2:end-1], Array(log10.(abs.(Q[2:end-1, 2:end-1]))); levels=18, color=:black)
     Colorbar(fig[:, end+1], hm)
     limits!(ax, -lx / 2, lx / 2, 0, ly)
     display(fig)
     return
 end
 
-stokes()
+stokes(CUDABackend())
 
 # fig, ax, hm = contourf(xv, yv, Q; levels=20, figure=(resolution=(1000, 800), fontsize=30), axis=(aspect=DataAspect(), title="Stream function"), colormap=:jet)
