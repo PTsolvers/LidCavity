@@ -94,11 +94,11 @@ end
     lx = ly = h
     μ       = 1.0
     U       = 1.0
-    ρ       = 10.0 # Re = ρ * U * ly / μs
+    ρ       = 50.0 # Re = ρ * U * ly / μs
     # Numerics
     nx      = ny = 100
     ndt     = 1000
-    niter   = 3e7
+    niter   = 200nx
     ϵ       = 1e-5
     r       = 0.7
     re_mech = 20π
@@ -147,40 +147,6 @@ end
     iter = 0
     res = ϵ * 2
     while (max(res) > ϵ) && (iter < niter)
-        # # Pressure
-        # ∇v .= diff(Vx, dims=1) ./ dx + diff(Vy, dims=2) ./ dy
-        # Pr .-= ∇v ./ (1.0 / (r * μ / θ_dτ))
-        # # Velocity + viscous rheology
-        # Vxe .= hcat(.-Vx[:, 1], Vx, 2.0 .* U .- Vx[:, end])
-        # Vye .= vcat(.-Vy[1, :]', Vy, .-Vy[end, :]')
-        # εxx .= diff(Vx, dims=1) ./ dx .- ∇v ./ 3.0
-        # εyy .= diff(Vy, dims=2) ./ dy .- ∇v ./ 3.0
-        # εxyv .= 0.5 .* (diff(Vxe, dims=2) ./ dy .+ diff(Vye, dims=1) ./ dx)
-        # τxx .+= (.-τxx .+ 2.0 .* μ .* εxx) .* dτ_r
-        # τyy .+= (.-τyy .+ 2.0 .* μ .* εyy) .* dτ_r
-        # τxyv .+= (.-τxyv .+ 2.0 .* μ .* εxyv) .* dτ_r
-        # Rx .= diff(.-Pr .+ τxx, dims=1) ./ dx .+ diff(τxyv[2:end-1, :], dims=2) ./ dy
-        # Ry .= diff(.-Pr .+ τyy, dims=2) ./ dy .+ diff(τxyv[:, 2:end-1], dims=1) ./ dx
-        # # Advection
-        # dVx .= max.(0.0, Vx[2:end-1, 2:end-1]) .* diff(Vx[1:end-1, 2:end-1], dims=1) ./ dx
-        # dVx .+= min.(0.0, Vx[2:end-1, 2:end-1]) .* diff(Vx[2:end, 2:end-1], dims=1) ./ dx
-        # dVx .+= max.(0.0, avx(Vy[:, 2:end-2])) .* diff(Vx[2:end-1, 1:end-1], dims=2) ./ dy
-        # dVx .+= min.(0.0, avx(Vy[:, 3:end-1])) .* diff(Vx[2:end-1, 2:end], dims=2) ./ dy
-        # dVy .= max.(0.0, Vy[2:end-1, 2:end-1]) .* diff(Vy[2:end-1, 1:end-1], dims=2) ./ dy
-        # dVy .+= min.(0.0, Vy[2:end-1, 2:end-1]) .* diff(Vy[2:end-1, 2:end], dims=2) ./ dy
-        # dVy .+= max.(0.0, avy(Vx[2:end-2, :])) .* diff(Vy[1:end-1, 2:end-1], dims=1) ./ dx
-        # dVy .+= min.(0.0, avy(Vx[3:end-1, :])) .* diff(Vy[2:end, 2:end-1], dims=1) ./ dx
-        # Rx[:, 2:end-1] .-= ρ .* dVx
-        # Ry[2:end-1, :] .-= ρ .* dVy
-        # # Update
-        # Vx[2:end-1, :] .+= Rx .* nudτ ./ μ
-        # Vy[:, 2:end-1] .+= Ry .* nudτ ./ μ
-        # Stream function
-        # UV .= diff(Vxe, dims=2) ./ dy .- diff(Vye, dims=1) ./ dx
-        # RQ .= .-(diff(diff(Q[2:end-1, :], dims=2), dims=2) ./ dy^2 .+
-        #          diff(diff(Q[:, 2:end-1], dims=1), dims=1) ./ dx^2) .+ UV[2:end-1, 2:end-1] .+ (1 - 2 / nx) * RQ
-        # Q[2:end-1, 2:end-1] .-= dτ_Q * RQ
-
         update_σ!(backend, 256, (nx+1, ny+1))(Pr, τ, V, μ, Δτ, Δ)
         update_rV!(backend, 256, (nx, ny))(rV, V, Pr, τ, ρ, Δ)
         update_V!(backend, 256, (nx, ny))(V, rV, Δτ)
@@ -188,6 +154,12 @@ end
         bc_Vy!(backend, 256, size(V.y, 1))(V.y, 0.0, U)
 
         KernelAbstractions.synchronize(backend)
+
+        # Stream function
+        # UV .= diff(V.x, dims=2) ./ dy .- diff(V.y, dims=1) ./ dx
+        # RQ .= .-(diff(diff(Q[2:end-1, :], dims=2), dims=2) ./ dy^2 .+
+        #          diff(diff(Q[:, 2:end-1], dims=1), dims=1) ./ dx^2) .+ UV[2:end-1, 2:end-1] .+ (1 - 5 / nx) * RQ
+        # Q[2:end-1, 2:end-1] .-= dτ_Q * RQ
 
         if iter % ndt == 0
             resv  = maximum.((rV.x, rV.y, RQ))
@@ -197,7 +169,7 @@ end
     end
     # visualise
     fig, ax, hm = contourf(xc, yc, Array(avy(V.y[2:end-1,:])); levels=20, figure=(resolution=(1000, 800), fontsize=30), axis=(aspect=DataAspect(), title="Velocity"), colormap=:jet)
-    # contour!(ax, xv[2:end-1], yv[2:end-1], Array(log10.(abs.(Q[2:end-1, 2:end-1]))); levels=18, color=:black)
+    contour!(ax, xv[2:end-1], yv[2:end-1], Array(log10.(abs.(Q[2:end-1, 2:end-1]))); levels=18, color=:black)
     Colorbar(fig[:, end+1], hm)
     limits!(ax, -lx / 2, lx / 2, 0, ly)
     display(fig)
