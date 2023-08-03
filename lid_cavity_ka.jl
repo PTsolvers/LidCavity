@@ -94,7 +94,7 @@ end
     lx = ly = h
     μ       = 1.0
     U       = 1.0
-    ρ       = 50.0 # Re = ρ * U * ly / μs
+    ρ       = 100.0 # Re = ρ * U * ly / μs
     # Numerics
     nx      = ny = 100
     ndt     = 1000
@@ -111,7 +111,7 @@ end
     xv, yv  = LinRange(-lx / 2, lx / 2, nx + 1), LinRange(0, ly, ny + 1)
     xc, yc  = amean1(xv), amean1(yv)
     lτ_re_m = min(lx, ly) / re_mech
-    vdτ     = min(dx, dy) / sqrt(6.1)
+    vdτ     = min(dx, dy) / sqrt(10.1)
     θ_dτ    = lτ_re_m * (r + 4 / 3) / vdτ
     dτ_r    = 1.0 ./ (θ_dτ .+ 1.0)
     nudτ    = vdτ * lτ_re_m
