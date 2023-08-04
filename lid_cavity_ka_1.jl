@@ -1,5 +1,4 @@
 using CairoMakie
-using AMDGPU
 using KernelAbstractions
 const KA = KernelAbstractions
 
@@ -150,4 +149,4 @@ end
 
 # CUDABackend() for running on Nvidia GPU (needs using CUDA on top)
 # ROCBackend() for running on AMD GPU (needs using AMDGPU on top)
-stokes(ROCBackend(); dat=Float64)
+stokes(CPU(); dat=Float64)
