@@ -32,18 +32,6 @@ macro ∂_yi(A) esc(:($A[ix+1, iy+1] - $A[ix+1, iy])) end
     end
 end
 
-#   ----
-# |-x-|-x-|-x-|
-#       ⬆
-#      -->
-
-# |-x-|-x-|-x-|
-#     ^ ⬆
-#     |
-#    -->
-
-# rVx = dt * (max(Vy[1:end-1], 0.0) * d(Vx[1:end-1])/dy + min(Vy[2:end], 0.0) * d(Vx[2:end  ])/dy)
-
 @kernel function update_rV!(rV, V, Pr, τ, ρ, Δ)
     ix, iy = @index(Global, NTuple)
     @inbounds if @isin(rV.x)
