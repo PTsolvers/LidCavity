@@ -42,10 +42,9 @@ end
                min(0.0, V.x[ix+1, iy+1]) * (V.x[ix+2, iy+1] - V.x[ix+1, iy+1]) / Δ.x +
                max(0.0, 0.5 * (V.y[ix+1, iy  ] + V.y[ix+2, iy  ])) * (V.x[ix+1, iy+1] - V.x[ix+1, iy  ]) / Δ.y +
                min(0.0, 0.5 * (V.y[ix+1, iy+1] + V.y[ix+2, iy+1])) * (V.x[ix+1, iy+2] - V.x[ix+1, iy+1]) / Δ.y
-        
+
         @all(rV.x) = -@∂_x(Pr) / Δ.x + @∂_x(τ.xx) / Δ.x + @∂_yi(τ.xy) / Δ.y - ρ * V∇Vx
     end
-            
     @inbounds if @isin(rV.x)
         V∇Vy = max(0.0, V.y[ix+1, iy+1]) * (V.y[ix+1, iy+1] - V.y[ix+1, iy  ]) / Δ.y +
                min(0.0, V.y[ix+1, iy+1]) * (V.y[ix+1, iy+2] - V.y[ix+1, iy+1]) / Δ.y +
@@ -77,7 +76,7 @@ end
 @kernel function update_rQ!(rQ, V, Q, Δ)
     ix, iy = @index(Global, NTuple)
     uv = @∂_yi(V.x) / Δ.y - @∂_xi(V.y) / Δ.x
-    @all(rQ) = (1 - 5 / (size(rQ, 1) + 1)) * @all(rQ) - (@∂2_y2i(Q) / Δ.y^2 + @∂2_x2i(Q) / Δ.x^2) + uv
+    @all(rQ) = (1 - 2 / (size(rQ, 1) + 1)) * @all(rQ) - (@∂2_y2i(Q) / Δ.y^2 + @∂2_x2i(Q) / Δ.x^2) + uv
 end
 
 @kernel function update_Q!(Q, rQ, Δτ)
@@ -88,6 +87,9 @@ end
 @views amean1(A) = 0.5 .* (A[1:end-1] .+ A[2:end])
 @views avx(A) = 0.5 .* (A[1:end-1, :] .+ A[2:end, :])
 @views avy(A) = 0.5 .* (A[:, 1:end-1] .+ A[:, 2:end])
+
+@views inn_x(A) = A[2:end-1, :]
+@views inn_y(A) = A[:, 2:end-1]
 
 @views function stokes(backend = CPU())
     ka_zeros(sz...) = KernelAbstractions.zeros(backend, Float64, sz...)
@@ -113,7 +115,7 @@ end
     xv, yv  = LinRange(-lx / 2, lx / 2, nx + 1), LinRange(0, ly, ny + 1)
     xc, yc  = amean1(xv), amean1(yv)
     lτ_re_m = min(lx, ly) / re_mech
-    vdτ     = min(dx, dy) / sqrt(7.1)
+    vdτ     = min(dx, dy) / sqrt(5.1)
     θ_dτ    = lτ_re_m * (r + 4 / 3) / vdτ
     dτ_r    = 1.0 ./ (θ_dτ .+ 1.0)
     nudτ    = vdτ * lτ_re_m
@@ -136,8 +138,8 @@ end
         xy = ka_zeros(nx + 1, ny + 1),
     )
     rV =  (
-        x = ka_zeros(nx - 1, ny),
-        y = ka_zeros(nx, ny - 1),
+        x = ka_zeros(nx - 1, ny    ),
+        y = ka_zeros(nx    , ny - 1),
     )
     Q  = ka_zeros(nx + 1, ny + 1)
     rQ = ka_zeros(nx - 1, ny - 1)
@@ -156,7 +158,7 @@ end
         bc_x_Vy!(backend, 256, size(V.y, 2))(V.y, 0.0, 0.0)
 
         # Stream function
-        update_rQ!(backend, 256, (nx-1, ny-1))(rQ, V, Q, Δ)
+        update_rQ!(backend, 256, (nx-1, ny-1))(rQ, (x = inn_y(V.x), y = inn_x(V.y)), Q, Δ)
         update_Q!(backend, 256, (nx-1, ny-1))(Q, rQ, Δτ)
 
         KernelAbstractions.synchronize(backend)
@@ -168,7 +170,7 @@ end
         iter += 1
     end
     # visualise
-    fig, ax, hm = contourf(xc, yc, Array(avy(V.y[2:end-1,:])); levels=20, figure=(resolution=(1000, 800), fontsize=30), axis=(aspect=DataAspect(), title="Velocity"), colormap=:jet)
+    fig, ax, hm = contourf(xc, yc, Array(avy(V.y[2:end-1, :])); levels=20, figure=(resolution=(1000, 800), fontsize=30), axis=(aspect=DataAspect(), title="Velocity"), colormap=:jet)
     contour!(ax, xv[2:end-1], yv[2:end-1], Array(log10.(abs.(Q[2:end-1, 2:end-1]))); levels=18, color=:black)
     Colorbar(fig[:, end+1], hm)
     limits!(ax, -lx / 2, lx / 2, 0, ly)
