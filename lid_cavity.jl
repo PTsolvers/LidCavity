@@ -1,5 +1,4 @@
-using GLMakie
-Makie.inline!(true)
+using CairoMakie
 
 @views amean1(A) = 0.5 .* (A[1:end-1] .+ A[2:end])
 @views avx(A) = 0.5 .* (A[1:end-1, :] .+ A[2:end, :])
@@ -67,16 +66,16 @@ Makie.inline!(true)
         Rx    .= diff(.-Pr .+ τxx, dims=1) ./ dx .+ diff(τxyv[2:end-1, :], dims=2) ./ dy
         Ry    .= diff(.-Pr .+ τyy, dims=2) ./ dy .+ diff(τxyv[:, 2:end-1], dims=1) ./ dx
         # Advection
-        dVx   .= max.(0.0, Vx[2:end-1,2:end-1]) .* diff(Vx[1:end-1,2:end-1], dims=1) ./ dx
-        dVx  .+= min.(0.0, Vx[2:end-1,2:end-1]) .* diff(Vx[2:end  ,2:end-1], dims=1) ./ dx
-        dVx  .+= max.(0.0, avx(Vy[:,2:end-2]))  .* diff(Vx[2:end-1,1:end-1], dims=2) ./ dy
-        dVx  .+= min.(0.0, avx(Vy[:,3:end-1]))  .* diff(Vx[2:end-1,2:end  ], dims=2) ./ dy
-        dVy   .= max.(0.0, Vy[2:end-1,2:end-1]) .* diff(Vy[2:end-1,1:end-1], dims=2) ./ dy
-        dVy  .+= min.(0.0, Vy[2:end-1,2:end-1]) .* diff(Vy[2:end-1,2:end  ], dims=2) ./ dy
-        dVy  .+= max.(0.0, avy(Vx[2:end-2,:]))  .* diff(Vy[1:end-1,2:end-1], dims=1) ./ dx
-        dVy  .+= min.(0.0, avy(Vx[3:end-1,:]))  .* diff(Vy[2:end  ,2:end-1], dims=1) ./ dx
-        Rx[:,2:end-1] .-= ρ .* dVx
-        Ry[2:end-1,:] .-= ρ .* dVy
+        # dVx   .= max.(0.0, Vx[2:end-1,2:end-1]) .* diff(Vx[1:end-1,2:end-1], dims=1) ./ dx
+        # dVx  .+= min.(0.0, Vx[2:end-1,2:end-1]) .* diff(Vx[2:end  ,2:end-1], dims=1) ./ dx
+        # dVx  .+= max.(0.0, avx(Vy[:,2:end-2]))  .* diff(Vx[2:end-1,1:end-1], dims=2) ./ dy
+        # dVx  .+= min.(0.0, avx(Vy[:,3:end-1]))  .* diff(Vx[2:end-1,2:end  ], dims=2) ./ dy
+        # dVy   .= max.(0.0, Vy[2:end-1,2:end-1]) .* diff(Vy[2:end-1,1:end-1], dims=2) ./ dy
+        # dVy  .+= min.(0.0, Vy[2:end-1,2:end-1]) .* diff(Vy[2:end-1,2:end  ], dims=2) ./ dy
+        # dVy  .+= max.(0.0, avy(Vx[2:end-2,:]))  .* diff(Vy[1:end-1,2:end-1], dims=1) ./ dx
+        # dVy  .+= min.(0.0, avy(Vx[3:end-1,:]))  .* diff(Vy[2:end  ,2:end-1], dims=1) ./ dx
+        # Rx[:,2:end-1] .-= ρ .* dVx
+        # Ry[2:end-1,:] .-= ρ .* dVy
         # Update
         Vx[2:end-1, :] .+= Rx .* nudτ ./ μs
         Vy[:, 2:end-1] .+= Ry .* nudτ ./ μs
@@ -92,7 +91,8 @@ Makie.inline!(true)
     fig, ax, hm = contourf(xc, yc, avy(Vy); levels=20, figure=(resolution=(1000, 800), fontsize=30), axis=(aspect=DataAspect(), title="Velocity"), colormap=:jet)
     contour!(ax, xv[2:end-1], yv[2:end-1], log10.(abs.(Q[2:end-1,2:end-1])); levels=18, color=:black)
     Colorbar(fig[:, end+1], hm); limits!(ax, -lx / 2, lx / 2, 0, ly)
-    display(fig)
+    # display(fig)
+    save("./out_fig.png", fig)
     return
 end
 
