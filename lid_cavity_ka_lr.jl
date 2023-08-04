@@ -146,7 +146,6 @@ end
     return
 end
 
+# CUDABackend() for running on Nvidia GPU (needs using CUDA on top)
+# ROCBackend() for running on AMD GPU (needs using AMDGPU on top)
 stokes(ROCBackend(); dat=Float64)
-
-# CUDABackend()
-# ROCBackend()
