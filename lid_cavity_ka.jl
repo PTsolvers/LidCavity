@@ -32,18 +32,6 @@ macro ∂_yi(A) esc(:($A[ix+1, iy+1] - $A[ix+1, iy])) end
     end
 end
 
-#   ----
-# |-x-|-x-|-x-|
-#       ⬆
-#      -->
-
-# |-x-|-x-|-x-|
-#     ^ ⬆
-#     |
-#    -->
-
-# rVx = dt * (max(Vy[1:end-1], 0.0) * d(Vx[1:end-1])/dy + min(Vy[2:end], 0.0) * d(Vx[2:end  ])/dy)
-
 @kernel function update_rV!(rV, V, Pr, τ, ρ, Δ)
     ix, iy = @index(Global, NTuple)
     @inbounds if @isin(rV.x)
@@ -73,14 +61,14 @@ end
 
 @kernel function bc_y_Vx!(Vx, U1, U2)
     ix = @index(Global, Linear)
-    @inbounds Vx[ix, 1  ] = 2.0 * U1 + Vx[ix, 2    ]
+    @inbounds Vx[ix, 1  ] = 2.0 * U1 - Vx[ix, 2    ]
     @inbounds Vx[ix, end] = 2.0 * U2 - Vx[ix, end-1]
 end
 
 @kernel function bc_x_Vy!(Vy, U1, U2)
     iy = @index(Global, Linear)
     @inbounds Vy[1  , iy] = 2.0 * U1 - Vy[2    , iy]
-    @inbounds Vy[end, iy] = 2.0 * U2 + Vy[end-1, iy]
+    @inbounds Vy[end, iy] = 2.0 * U2 - Vy[end-1, iy]
 end
 
 @views amean1(A) = 0.5 .* (A[1:end-1] .+ A[2:end])
@@ -158,7 +146,7 @@ end
         # Stream function
         UV .= diff(V.x, dims=2) ./ dy .- diff(V.y, dims=1) ./ dx
         RQ .= .-(diff(diff(Q[2:end-1, :], dims=2), dims=2) ./ dy^2 .+
-                 diff(diff(Q[:, 2:end-1], dims=1), dims=1) ./ dx^2) .+ UV[2:end-1, 2:end-1] .+ (1 - 5 / nx) * RQ
+                 diff(diff(Q[:, 2:end-1], dims=1), dims=1) ./ dx^2) .+ UV[2:end-1, 2:end-1] .+ (1 - 2 / nx) * RQ
         Q[2:end-1, 2:end-1] .-= dτ_Q * RQ
 
         if iter % ndt == 0
