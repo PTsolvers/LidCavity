@@ -59,16 +59,9 @@ end
     @inbounds if @isin(rV.y) @inn(V.y) += @all(rV.y) * Δτ.V end
 end
 
-@kernel function bc_y_Vx!(Vx, U1, U2)
+@kernel function bc_y_Vx!(Vx, U)
     ix = @index(Global, Linear)
-    @inbounds Vx[ix, 1  ] = 2.0 * U1 - Vx[ix, 2    ]
-    @inbounds Vx[ix, end] = 2.0 * U2 - Vx[ix, end-1]
-end
-
-@kernel function bc_x_Vy!(Vy, U1, U2)
-    iy = @index(Global, Linear)
-    @inbounds Vy[1  , iy] = 2.0 * U1 - Vy[2    , iy]
-    @inbounds Vy[end, iy] = 2.0 * U2 - Vy[end-1, iy]
+    @inbounds Vx[ix, end] = 2.0 * U - Vx[ix, end-1]
 end
 
 @views amean1(A) = 0.5 .* (A[1:end-1] .+ A[2:end])
@@ -128,8 +121,7 @@ end
     UV = ka_zeros(nx + 1, ny + 1)
     RQ = ka_zeros(nx - 1, ny - 1)
 
-    bc_y_Vx!(backend, 256, size(V.x, 1))(V.x, 0.0, U)
-    bc_x_Vy!(backend, 256, size(V.y, 2))(V.y, 0.0, 0.0)
+    bc_y_Vx!(backend, 256, size(V.x, 1))(V.x, U)
     KernelAbstractions.synchronize(backend)
     # Action
     iter = 0
@@ -138,8 +130,7 @@ end
         update_σ!(backend, 256, (nx+1, ny+1))(Pr, τ, V, μ, Δτ, Δ)
         update_rV!(backend, 256, (nx, ny))(rV, V, Pr, τ, ρ, Δ)
         update_V!(backend, 256, (nx, ny))(V, rV, Δτ)
-        bc_y_Vx!(backend, 256, size(V.x, 1))(V.x, 0.0, U)
-        bc_x_Vy!(backend, 256, size(V.y, 2))(V.y, 0.0, 0.0)
+        bc_y_Vx!(backend, 256, size(V.x, 1))(V.x, U)
 
         KernelAbstractions.synchronize(backend)
 
