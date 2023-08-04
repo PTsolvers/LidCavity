@@ -1,8 +1,7 @@
 using CairoMakie
-# Makie.inline!(true)
 
 using KernelAbstractions
-using CUDA
+using AMDGPU
 
 macro isin(A) esc(:(checkbounds(Bool, $A, ix, iy))) end
 
@@ -164,6 +163,6 @@ end
     return
 end
 
-stokes(CUDABackend())
+stokes(ROCBackend())
 
 # fig, ax, hm = contourf(xv, yv, Q; levels=20, figure=(resolution=(1000, 800), fontsize=30), axis=(aspect=DataAspect(), title="Stream function"), colormap=:jet)
