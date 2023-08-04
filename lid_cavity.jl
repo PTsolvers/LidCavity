@@ -1,5 +1,4 @@
-using GLMakie
-Makie.inline!(true)
+using CairoMakie
 
 @views amean1(A) = 0.5 .* (A[1:end-1] .+ A[2:end])
 @views avx(A) = 0.5 .* (A[1:end-1, :] .+ A[2:end, :])
@@ -93,6 +92,7 @@ Makie.inline!(true)
     contour!(ax, xv[2:end-1], yv[2:end-1], log10.(abs.(Q[2:end-1,2:end-1])); levels=18, color=:black)
     Colorbar(fig[:, end+1], hm); limits!(ax, -lx / 2, lx / 2, 0, ly)
     display(fig)
+    # save("./out_fig.png", fig)
     return
 end
 
