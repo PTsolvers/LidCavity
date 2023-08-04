@@ -73,13 +73,13 @@ end
 
 @kernel function bc_y_Vx!(Vx, U1, U2)
     ix = @index(Global, Linear)
-    @inbounds Vx[ix, 1  ] = 2.0 * U1 - Vx[ix, 2    ]
+    @inbounds Vx[ix, 1  ] = 2.0 * U1 + Vx[ix, 2    ]
     @inbounds Vx[ix, end] = 2.0 * U2 - Vx[ix, end-1]
 end
 
 @kernel function bc_x_Vy!(Vy, U1, U2)
     iy = @index(Global, Linear)
-    @inbounds Vy[1  , iy] = 2.0 * U1 + Vy[2    , iy]
+    @inbounds Vy[1  , iy] = 2.0 * U1 - Vy[2    , iy]
     @inbounds Vy[end, iy] = 2.0 * U2 + Vy[end-1, iy]
 end
 
@@ -93,8 +93,8 @@ end
     h       = 1.0
     lx = ly = h
     μ       = 1.0
-    U       = 0.1
-    ρ       = 00.0 # Re = ρ * U * ly / μs
+    U       = 1.0
+    ρ       = 100.0 # Re = ρ * U * ly / μs
     # Numerics
     nx      = ny = 100
     ndt     = 1000
@@ -156,10 +156,10 @@ end
         KernelAbstractions.synchronize(backend)
 
         # Stream function
-        # UV .= diff(V.x, dims=2) ./ dy .- diff(V.y, dims=1) ./ dx
-        # RQ .= .-(diff(diff(Q[2:end-1, :], dims=2), dims=2) ./ dy^2 .+
-        #          diff(diff(Q[:, 2:end-1], dims=1), dims=1) ./ dx^2) .+ UV[2:end-1, 2:end-1] .+ (1 - 5 / nx) * RQ
-        # Q[2:end-1, 2:end-1] .-= dτ_Q * RQ
+        UV .= diff(V.x, dims=2) ./ dy .- diff(V.y, dims=1) ./ dx
+        RQ .= .-(diff(diff(Q[2:end-1, :], dims=2), dims=2) ./ dy^2 .+
+                 diff(diff(Q[:, 2:end-1], dims=1), dims=1) ./ dx^2) .+ UV[2:end-1, 2:end-1] .+ (1 - 5 / nx) * RQ
+        Q[2:end-1, 2:end-1] .-= dτ_Q * RQ
 
         if iter % ndt == 0
             resv  = maximum.((rV.x, rV.y, RQ))
