@@ -16,6 +16,9 @@ macro ∂_y(A) esc(:($A[ix, iy+1] - $A[ix, iy])) end
 macro ∂_xi(A) esc(:($A[ix+1, iy+1] - $A[ix, iy+1])) end
 macro ∂_yi(A) esc(:($A[ix+1, iy+1] - $A[ix+1, iy])) end
 
+macro ∂2_x2i(A) esc(:($A[ix, iy+1] - 2.0 * $A[ix+1, iy+1] + $A[ix+2, iy+1])) end
+macro ∂2_y2i(A) esc(:($A[ix+1, iy] - 2.0 * $A[ix+1, iy+1] + $A[ix+1, iy+2])) end
+
 @kernel function update_σ!(Pr, τ, V, μ, Δτ, Δ)
     ix, iy = @index(Global, NTuple)
     @inbounds if @isin(Pr)
@@ -44,7 +47,7 @@ end
     end
             
     @inbounds if @isin(rV.x)
-        V∇Vy = max(0.0, V.y[ix+1, iy+1]) * (V.y[ix+1, iy+1] - V.y[ix  , iy+1]) / Δ.y +
+        V∇Vy = max(0.0, V.y[ix+1, iy+1]) * (V.y[ix+1, iy+1] - V.y[ix+1, iy  ]) / Δ.y +
                min(0.0, V.y[ix+1, iy+1]) * (V.y[ix+1, iy+2] - V.y[ix+1, iy+1]) / Δ.y +
                max(0.0, 0.5 * (V.x[ix  , iy+1] + V.x[ix  , iy+2])) * (V.y[ix+1, iy+1] - V.y[ix  , iy+1]) / Δ.x +
                min(0.0, 0.5 * (V.x[ix+1, iy+1] + V.x[ix+1, iy+2])) * (V.y[ix+2, iy+1] - V.y[ix+1, iy+1]) / Δ.x
@@ -59,9 +62,27 @@ end
     @inbounds if @isin(rV.y) @inn(V.y) += @all(rV.y) * Δτ.V end
 end
 
-@kernel function bc_y_Vx!(Vx, U)
+@kernel function bc_y_Vx!(Vx, U1, U2)
     ix = @index(Global, Linear)
-    @inbounds Vx[ix, end] = 2.0 * U - Vx[ix, end-1]
+    @inbounds Vx[ix, 1  ] = 2.0 * U1 - Vx[ix, 2    ]
+    @inbounds Vx[ix, end] = 2.0 * U2 - Vx[ix, end-1]
+end
+
+@kernel function bc_x_Vy!(Vy, U1, U2)
+    iy = @index(Global, Linear)
+    @inbounds Vy[1  , iy] = 2.0 * U1 - Vy[2    , iy]
+    @inbounds Vy[end, iy] = 2.0 * U2 - Vy[end-1, iy]
+end
+
+@kernel function update_rQ!(rQ, V, Q, Δ)
+    ix, iy = @index(Global, NTuple)
+    uv = @∂_yi(V.x) / Δ.y - @∂_xi(V.y) / Δ.x
+    @all(rQ) = (1 - 5 / (size(rQ, 1) + 1)) * @all(rQ) - (@∂2_y2i(Q) / Δ.y^2 + @∂2_x2i(Q) / Δ.x^2) + uv
+end
+
+@kernel function update_Q!(Q, rQ, Δτ)
+    ix, iy = @index(Global, NTuple)
+    @inn(Q) -= Δτ.Q * @all(rQ)
 end
 
 @views amean1(A) = 0.5 .* (A[1:end-1] .+ A[2:end])
@@ -101,6 +122,7 @@ end
         Pr = r * μ / θ_dτ,
         τ = dτ_r,
         V = nudτ / μ,
+        Q = dτ_Q,
     )
     # Initialisation
     Pr      = ka_zeros(nx, ny)
@@ -118,10 +140,10 @@ end
         y = ka_zeros(nx, ny - 1),
     )
     Q  = ka_zeros(nx + 1, ny + 1)
-    UV = ka_zeros(nx + 1, ny + 1)
-    RQ = ka_zeros(nx - 1, ny - 1)
+    rQ = ka_zeros(nx - 1, ny - 1)
 
-    bc_y_Vx!(backend, 256, size(V.x, 1))(V.x, U)
+    bc_y_Vx!(backend, 256, size(V.x, 1))(V.x, 0.0, U)
+    bc_x_Vy!(backend, 256, size(V.y, 2))(V.y, 0.0, 0.0)
     KernelAbstractions.synchronize(backend)
     # Action
     iter = 0
@@ -130,18 +152,17 @@ end
         update_σ!(backend, 256, (nx+1, ny+1))(Pr, τ, V, μ, Δτ, Δ)
         update_rV!(backend, 256, (nx, ny))(rV, V, Pr, τ, ρ, Δ)
         update_V!(backend, 256, (nx, ny))(V, rV, Δτ)
-        bc_y_Vx!(backend, 256, size(V.x, 1))(V.x, U)
-
-        KernelAbstractions.synchronize(backend)
+        bc_y_Vx!(backend, 256, size(V.x, 1))(V.x, 0.0, U)
+        bc_x_Vy!(backend, 256, size(V.y, 2))(V.y, 0.0, 0.0)
 
         # Stream function
-        UV .= diff(V.x, dims=2) ./ dy .- diff(V.y, dims=1) ./ dx
-        RQ .= .-(diff(diff(Q[2:end-1, :], dims=2), dims=2) ./ dy^2 .+
-                 diff(diff(Q[:, 2:end-1], dims=1), dims=1) ./ dx^2) .+ UV[2:end-1, 2:end-1] .+ (1 - 2 / nx) * RQ
-        Q[2:end-1, 2:end-1] .-= dτ_Q * RQ
+        update_rQ!(backend, 256, (nx-1, ny-1))(rQ, V, Q, Δ)
+        update_Q!(backend, 256, (nx-1, ny-1))(Q, rQ, Δτ)
 
+        KernelAbstractions.synchronize(backend)
+        
         if iter % ndt == 0
-            resv  = maximum.((rV.x, rV.y, RQ))
+            resv  = maximum.((rV.x, rV.y, rQ))
             res   = maximum(resv); println(" iter $iter err: $(round.(resv, sigdigits=3))")
         end
         iter += 1
