@@ -91,8 +91,8 @@ end
     U       = 1.0
     ρ       = 100.0 # Re = ρ * U * ly / μs
     # Numerics
-    nx = ny = 100
-    ndt     = 1000
+    nx = ny = 128
+    ndt     = 10nx
     niter   = 3e7
     ϵ       = 1e-5
     r       = 0.7
@@ -135,7 +135,7 @@ end
         advect_V!(be, 256, (nx-1, ny-1))(dVx, dVy, Vx, Vy, dx, dy)
         update_R!(be, 256, (nx, ny))(inn_y(Rx), inn_x(Ry), dVx, dVy, ρ)
         update_V!(be, 256, (nx, ny))(inn_x(Vx), inn_y(Vy), Rx, Ry, nudτ, μs, inn(Q), RQ, dτ_Q)
-        (iter % ndt == 0) && (resv .= maximum.([Rx, Ry, ∇v, RQ]); res = maximum(resv); println(" iter $iter err: $(round.(resv, sigdigits=3))"))
+        (iter % ndt == 0) && (resv .= maximum.([Rx, Ry, ∇v, RQ]); res = maximum(resv); println(" iter/nx $(round(iter/nx)) err: $(round.(resv, sigdigits=3))"))
         iter += 1
     end
     KA.synchronize(be)
