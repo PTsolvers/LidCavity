@@ -71,16 +71,16 @@ end
     @inbounds if @isin(rV.y) @inn(V.y) += @all(rV.y) * Δτ.V end
 end
 
-@kernel function bc_Vx!(Vx, U1, U2)
-    iy = @index(Global, Linear)
-    @inbounds Vx[1  , iy] = 2.0 * U1 - Vx[2    , iy]
-    @inbounds Vx[end, iy] = 2.0 * U2 - Vx[end-1, iy]
+@kernel function bc_y_Vx!(Vx, U1, U2)
+    ix = @index(Global, Linear)
+    @inbounds Vx[ix, 1  ] = 2.0 * U1 - Vx[ix, 2    ]
+    @inbounds Vx[ix, end] = 2.0 * U2 - Vx[ix, end-1]
 end
 
-@kernel function bc_Vy!(Vy, U1, U2)
-    ix = @index(Global, Linear)
-    @inbounds Vy[ix, 1  ] = 2.0 * U1 - Vy[ix, 2    ]
-    @inbounds Vy[ix, end] = 2.0 * U2 - Vy[ix, end-1]
+@kernel function bc_x_Vy!(Vy, U1, U2)
+    iy = @index(Global, Linear)
+    @inbounds Vy[1  , iy] = 2.0 * U1 + Vy[2    , iy]
+    @inbounds Vy[end, iy] = 2.0 * U2 + Vy[end-1, iy]
 end
 
 @views amean1(A) = 0.5 .* (A[1:end-1] .+ A[2:end])
@@ -93,8 +93,8 @@ end
     h       = 1.0
     lx = ly = h
     μ       = 1.0
-    U       = 1.0
-    ρ       = 100.0 # Re = ρ * U * ly / μs
+    U       = 0.1
+    ρ       = 00.0 # Re = ρ * U * ly / μs
     # Numerics
     nx      = ny = 100
     ndt     = 1000
@@ -111,7 +111,7 @@ end
     xv, yv  = LinRange(-lx / 2, lx / 2, nx + 1), LinRange(0, ly, ny + 1)
     xc, yc  = amean1(xv), amean1(yv)
     lτ_re_m = min(lx, ly) / re_mech
-    vdτ     = min(dx, dy) / sqrt(10.1)
+    vdτ     = min(dx, dy) / sqrt(7.1)
     θ_dτ    = lτ_re_m * (r + 4 / 3) / vdτ
     dτ_r    = 1.0 ./ (θ_dτ .+ 1.0)
     nudτ    = vdτ * lτ_re_m
@@ -140,8 +140,8 @@ end
     UV = ka_zeros(nx + 1, ny + 1)
     RQ = ka_zeros(nx - 1, ny - 1)
 
-    bc_Vx!(backend, 256, size(V.x, 2))(V.x, 0.0, 0.0)
-    bc_Vy!(backend, 256, size(V.y, 1))(V.y, 0.0, U)
+    bc_y_Vx!(backend, 256, size(V.x, 1))(V.x, 0.0, U)
+    bc_x_Vy!(backend, 256, size(V.y, 2))(V.y, 0.0, 0.0)
     KernelAbstractions.synchronize(backend)
     # Action
     iter = 0
@@ -150,8 +150,8 @@ end
         update_σ!(backend, 256, (nx+1, ny+1))(Pr, τ, V, μ, Δτ, Δ)
         update_rV!(backend, 256, (nx, ny))(rV, V, Pr, τ, ρ, Δ)
         update_V!(backend, 256, (nx, ny))(V, rV, Δτ)
-        bc_Vx!(backend, 256, size(V.x, 2))(V.x, 0.0, 0.0)
-        bc_Vy!(backend, 256, size(V.y, 1))(V.y, 0.0, U)
+        bc_y_Vx!(backend, 256, size(V.x, 1))(V.x, 0.0, U)
+        bc_x_Vy!(backend, 256, size(V.y, 2))(V.y, 0.0, 0.0)
 
         KernelAbstractions.synchronize(backend)
 
